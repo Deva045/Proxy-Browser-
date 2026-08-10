@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>Proxy Browser</title>
+
+
+<style>
+
+body{
+
+    margin:0;
+    height:100vh;
+    font-family:Arial;
+    background:#111827;
+    color:white;
+
+}
+
+
+.browser{
+
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+
+}
+
+
+
+.tabs{
+
+    display:flex;
+    background:#1f2937;
+    padding:5px;
+    gap:5px;
+
+}
+
+
+
+.tab{
+
+    background:#374151;
+    padding:8px 12px;
+    border-radius:6px;
+    cursor:pointer;
+
+}
+
+
+
+.active{
+
+    background:#2563eb;
+
+}
+
+
+
+.toolbar{
+
+    display:flex;
+    gap:8px;
+    padding:10px;
+
+}
+
+
+
+button{
+
+    padding:8px 12px;
+    cursor:pointer;
+
+}
+
+
+
+input{
+
+    flex:1;
+    padding:10px;
+
+}
+
+
+
+iframe{
+
+    flex:1;
+    width:100%;
+    border:none;
+
+}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div class="browser">
+
+
+<div class="tabs" id="tabs"></div>
+
+
+
+<div class="toolbar">
+
+
+<button onclick="back()">
+←
+</button>
+
+
+<button onclick="forward()">
+→
+</button>
+
+
+<button onclick="reload()">
+⟳
+</button>
+
+
+
+<input
+id="url"
+placeholder="website.com"
+/>
+
+
+
+<button onclick="openURL()">
+Go
+</button>
+
+
+
+<button onclick="newTab()">
++
+</button>
+
+
+</div>
+
+
+
+<iframe
+id="view"
+onload="pageLoaded()"
+allow="fullscreen"
+allow-scripts
+allow-forms
+allow-same-origin>
+</iframe>
+
+
+
+</div>
+
+
+
+<script type="module">
+
+
+import {
+
+createTab,
+
+closeTab,
+
+switchTab,
+
+getTabs,
+
+getActiveTab,
+
+updateTabURL,
+
+updateTabTitle,
+
+goBack,
+
+goForward
+
+}
+
+from "./tabs.js";
+
+
+
+
+
+
+function renderTabs(){
+
+
+const container =
+document.getElementById("tabs");
+
+
+container.innerHTML="";
+
+
+
+getTabs().forEach(tab=>{
+
+
+const el =
+document.createElement("div");
+
+
+el.className =
+"tab " +
+(
+getActiveTab()?.id === tab.id
+?
+"active"
+:
+""
+);
+
+
+
+el.innerHTML =
+`
+${tab.title}
+
+<button>
+x
+</button>
+`;
+
+
+
+el.onclick=()=>{
+
+
+switchTab(tab.id);
+
+loadTab();
+
+
+};
+
+
+
+el.querySelector("button")
+.onclick=(e)=>{
+
+
+e.stopPropagation();
+
+removeTab(tab.id);
+
+
+};
+
+
+
+container.appendChild(el);
+
+
+
+});
+
+
+}
+
+
+
+
+
+
+
+
+function loadTab(){
+
+
+const tab =
+getActiveTab();
+
+
+
+if(!tab){
+
+return;
+
+}
+
+
+
+document
+.getElementById("url")
+.value =
+tab.url === "about:blank"
+?
+""
+:
+tab.url;
+
+
+
+document
+.getElementById("view")
+.src =
+tab.proxyUrl || "about:blank";
+
+
+
+renderTabs();
+
+
+}
+
+
+
+
+
+
+
+function syncTabURL(){
+
+
+const frame =
+document.getElementById("view");
+
+
+const tab =
+getActiveTab();
+
+
+
+if(!tab){
+
+return;
+
+}
+
+
+
+try{
+
+
+let current =
+frame.contentWindow.location.href;
+
+
+
+if(
+current &&
+current.includes("/proxy?url=")
+){
+
+
+const encoded =
+current.split(
+"url="
+)[1];
+
+
+
+if(encoded){
+
+
+const url =
+decodeURL(encoded);
+
+
+
+if(
+url !== tab.url
+){
+
+
+updateTabURL(
+tab.id,
+url
+);
+
+
+document
+.getElementById("url")
+.value =
+url;
+
+
+renderTabs();
+
+
+}
+
+
+
+}
+
+
+
+}
+
+
+}
+catch{
+
+// Cross origin blocked
+
+}
+
+
+
+}
+
+
+
+
+
+
+
+
+function decodeURL(data){
+
+
+data =
+data
+.replace(/-/g,"+")
+.replace(/_/g,"/");
+
+
+
+while(data.length % 4){
+
+data += "=";
+
+}
+
+
+
+return atob(data);
+
+
+}
+
+
+
+
+
+
+
+function updateTitle(){
+
+
+const frame =
+document.getElementById("view");
+
+
+const tab =
+getActiveTab();
+
+
+
+if(!tab){
+
+return;
+
+}
+
+
+
+try{
+
+
+const title =
+frame
+.contentDocument
+.title;
+
+
+
+if(title){
+
+
+updateTabTitle(
+tab.id,
+title
+);
+
+
+renderTabs();
+
+
+}
+
+
+}
+catch{}
+
+
+
+}
+
+
+
+
+
+
+
+
+window.pageLoaded=function(){
+
+
+updateTitle();
+
+
+setTimeout(
+syncTabURL,
+500
+);
+
+
+};
+
+
+
+
+
+
+
+
+window.openURL=function(){
+
+
+let url =
+document
+.getElementById("url")
+.value
+.trim();
+
+
+
+if(!url){
+
+return;
+
+}
+
+
+
+if(!url.startsWith("http")){
+
+url =
+"https://"+url;
+
+}
+
+
+
+const tab =
+getActiveTab();
+
+
+
+if(tab){
+
+
+updateTabURL(
+tab.id,
+url
+);
+
+
+
+tab.title =
+new URL(url)
+.hostname;
+
+
+}
+
+
+
+loadTab();
+
+
+};
+
+
+
+
+
+
+
+
+window.newTab=function(){
+
+
+createTab();
+
+
+loadTab();
+
+
+};
+
+
+
+
+
+
+
+
+window.removeTab=function(id){
+
+
+closeTab(id);
+
+
+
+if(!getActiveTab()){
+
+createTab();
+
+}
+
+
+
+loadTab();
+
+
+};
+
+
+
+
+
+
+
+
+window.back=function(){
+
+
+const tab =
+getActiveTab();
+
+
+
+if(!tab){
+
+return;
+
+}
+
+
+
+const updated =
+goBack(tab.id);
+
+
+
+if(updated){
+
+loadTab();
+
+}
+
+
+};
+
+
+
+
+
+
+
+
+window.forward=function(){
+
+
+const tab =
+getActiveTab();
+
+
+
+if(!tab){
+
+return;
+
+}
+
+
+
+const updated =
+goForward(tab.id);
+
+
+
+if(updated){
+
+loadTab();
+
+}
+
+
+};
+
+
+
+
+
+
+
+
+window.reload=function(){
+
+
+document
+.getElementById("view")
+.contentWindow
+.location
+.reload();
+
+
+};
+
+
+
+
+
+
+
+createTab();
+
+
+loadTab();
+
+
+
+</script>
+
+
+</body>
+
+</html>

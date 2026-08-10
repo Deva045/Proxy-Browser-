@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Proxy Browser</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: white;
+    }
+
+    .browser {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tabs {
+      display: flex;
+      background: #1f2937;
+      padding: 5px;
+      gap: 5px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      background: #374151;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      background: #2563eb;
+    }
+
+    .tab button {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      background: #111827;
+    }
+
+    button {
+      padding: 8px 12px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background: #374151;
+      color: white;
+    }
+
+    input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      background: #1f2937;
+      color: white;
+    }
+
+    iframe {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="browser">
+    <div class="tabs" id="tabs"></div>
+
+    <div class="toolbar">
+      <button onclick="back()">←</button>
+      <button onclick="forward()">→</button>
+      <button onclick="reload()">⟳</button>
+      <input id="url" placeholder="website.com">
+      <button onclick="openURL()">Go</button>
+      <button onclick="newTab()">+</button>
+    </div>
+
+    <iframe
+      id="view"
+      allow="fullscreen; clipboard-read; clipboard-write"
+      allow-scripts
+      allow-forms
+      allow-same-origin
+      allow-popups
+      allow-modals
+    ></iframe>
+  </div>
+
+  <script type="module">
+    import {
+      createTab,
+      closeTab,
+      switchTab,
+      getTabs,
+      getActiveTab,
+      updateTabURL,
+      updateTabTitle,
+      goBack,
+      goForward
+    } from "./tabs.js";
+
+    function normalizeURL(value) {
+      const input = (value || "").trim();
+      if (!input || input === "about:blank") {
+        return "about:blank";
+      }
+
+      if (/^(https?:\/\/|about:|data:|mailto:|blob:|javascript:)/i.test(input)) {
+        return input;
+      }
+
+      if (input.includes(" ")) {
+        return input;
+      }
+
+      return `https://${input}`;
+    }
+
+    function getHost(url) {
+      try {
+        return new URL(url).hostname || "New Tab";
+      } catch (error) {
+        return "New Tab";
+      }
+    }
+
+    function renderTabs() {
+      const container = document.getElementById("tabs");
+      const active = getActiveTab();
+      container.innerHTML = "";
+
+      getTabs().forEach((tab) => {
+        const el = document.createElement("div");
+        el.className = "tab" + (active && active.id === tab.id ? " active" : "");
+        el.innerHTML = `<span>${tab.title}</span><button type="button" aria-label="Close tab">x</button>`;
+
+        el.addEventListener("click", (event) => {
+          const button = event.target.closest("button");
+          if (button) {
+            event.stopPropagation();
+            removeTab(tab.id);
+            return;
+          }
+
+          switchTab(tab.id);
+          loadTab();
+        });
+
+        container.appendChild(el);
+      });
+    }
+
+    function loadTab() {
+      const tab = getActiveTab();
+      if (!tab) {
+        return;
+      }
+
+      const input = document.getElementById("url");
+      input.value = tab.url === "about:blank" ? "" : tab.url;
+
+      const frame = document.getElementById("view");
+      frame.src = tab.proxyUrl || "about:blank";
+
+      renderTabs();
+    }
+
+    function syncTabFromFrame() {
+      const tab = getActiveTab();
+      if (!tab) {
+        return;
+      }
+
+      const frame = document.getElementById("view");
+      try {
+        const currentHref = frame.contentWindow.location.href;
+        if (currentHref && currentHref !== "about:blank") {
+          updateTabURL(tab.id, currentHref);
+          updateTabTitle(tab.id, getHost(currentHref));
+        }
+      } catch (error) {
+        // ignore cross-origin or blank-frame issues
+      }
+
+      try {
+        const title = frame.contentDocument?.title;
+        if (title) {
+          updateTabTitle(tab.id, title);
+        }
+      } catch (error) {
+        // ignore title access errors
+      }
+
+      renderTabs();
+    }
+
+    window.openURL = function () {
+      const input = document.getElementById("url");
+      const raw = normalizeURL(input.value);
+
+      if (!raw || raw === "about:blank") {
+        return;
+      }
+
+      const tab = getActiveTab() || createTab();
+      updateTabURL(tab.id, raw);
+      updateTabTitle(tab.id, getHost(raw));
+      loadTab();
+    };
+
+    window.newTab = function () {
+      createTab();
+      loadTab();
+    };
+
+    window.removeTab = function (id) {
+      closeTab(id);
+      if (!getActiveTab()) {
+        createTab();
+      }
+      loadTab();
+    };
+
+    window.back = function () {
+      const tab = getActiveTab();
+      if (!tab) {
+        return;
+      }
+
+      goBack(tab.id);
+      loadTab();
+    };
+
+    window.forward = function () {
+      const tab = getActiveTab();
+      if (!tab) {
+        return;
+      }
+
+      goForward(tab.id);
+      loadTab();
+    };
+
+    window.reload = function () {
+      const tab = getActiveTab();
+      if (!tab) {
+        return;
+      }
+
+      const frame = document.getElementById("view");
+      if (tab.proxyUrl && tab.proxyUrl !== "about:blank") {
+        frame.src = tab.proxyUrl;
+      } else {
+        frame.src = "about:blank";
+      }
+    };
+
+    document.getElementById("url").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        window.openURL();
+      }
+    });
+
+    document.getElementById("view").addEventListener("load", syncTabFromFrame);
+
+    createTab();
+    loadTab();
+  </script>
+</body>
+</html>
