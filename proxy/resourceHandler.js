@@ -1,17 +1,44 @@
-// proxy/resourceHandler.js
-
 import { rewriteHTML } from "./html.js";
 import { injectProxyScript } from "./inject.js";
+
+
+function isAPIRequest(url) {
+
+    try {
+
+        const parsed =
+            new URL(url);
+
+
+        return (
+            parsed.pathname.startsWith("/ajax/") ||
+            parsed.pathname.startsWith("/api/") ||
+            parsed.pathname.startsWith("/graphql")
+        );
+
+    }
+    catch {
+
+        return false;
+
+    }
+
+}
 
 
 export function processResource(
     body,
     contentType,
     url
-){
+) {
 
-    if(!body){
+    if (
+        body === null ||
+        body === undefined
+    ) {
+
         return body;
+
     }
 
 
@@ -23,22 +50,53 @@ export function processResource(
 
 
     const type =
-    (contentType || "")
-    .toLowerCase();
+        (
+            contentType ||
+            ""
+        )
+        .toLowerCase();
 
 
+    /*
+     * ============================================================
+     * API / XHR RESPONSES
+     * ============================================================
+     *
+     * Never HTML-rewrite API responses.
+     *
+     * Instagram can return AJAX responses with
+     * text/html even though they are data responses.
+     */
 
-    // =====================
-    // HTML
-    // =====================
+    if (
+        isAPIRequest(url)
+    ) {
 
-    if(
+        console.log(
+            "API RESPONSE PASSED THROUGH:",
+            url
+        );
+
+
+        return body;
+
+    }
+
+
+    /*
+     * ============================================================
+     * HTML DOCUMENT
+     * ============================================================
+     */
+
+    if (
         type.includes("text/html")
-    ){
+    ) {
 
         let html =
-        body.toString();
-
+            Buffer.isBuffer(body)
+                ? body.toString("utf8")
+                : String(body);
 
 
         console.log(
@@ -47,26 +105,24 @@ export function processResource(
         );
 
 
-
         html =
-        rewriteHTML(
-            html,
-            url
-        );
-
+            rewriteHTML(
+                html,
+                url
+            );
 
 
         html =
-        injectProxyScript(
-            html
-        );
-
+            injectProxyScript(
+                html,
+                url
+            );
 
 
         console.log(
-            "INJECT SUCCESS"
+            "INJECT SUCCESS:",
+            url
         );
-
 
 
         return html;
@@ -74,19 +130,17 @@ export function processResource(
     }
 
 
+    /*
+     * ============================================================
+     * JAVASCRIPT
+     * ============================================================
+     */
 
-
-
-
-
-    // =====================
-    // JAVASCRIPT
-    // =====================
-
-    if(
+    if (
         type.includes("javascript") ||
+        type.includes("ecmascript") ||
         type.includes("x-javascript")
-    ){
+    ) {
 
         console.log(
             "JS PASSED THROUGH:",
@@ -99,67 +153,116 @@ export function processResource(
     }
 
 
+    /*
+     * ============================================================
+     * CSS
+     * ============================================================
+     */
 
-
-
-
-
-
-    // =====================
-    // CSS
-    // =====================
-
-    if(
+    if (
+        type.includes("text/css") ||
         type.includes("css")
-    ){
+    ) {
 
         let css =
-        body.toString();
-
+            Buffer.isBuffer(body)
+                ? body.toString("utf8")
+                : String(body);
 
 
         css =
-        css.replace(
-            /url\(["']?([^"')]+)["']?\)/gi,
+            css.replace(
+                /url\\(\\s*(['"]?)([^'")]+)\\1\\s*\\)/gi,
 
-            (match,value)=>{
+                (
+                    match,
+                    quote,
+                    value
+                ) => {
 
-
-                try{
-
-
-                    const absolute =
-                    new URL(
-                        value,
-                        url
-                    ).href;
+                    const trimmed =
+                        value.trim();
 
 
+                    if (
+                        !trimmed ||
+                        trimmed.startsWith("data:") ||
+                        trimmed.startsWith("blob:") ||
+                        trimmed.startsWith("#") ||
+                        trimmed.startsWith(
+                            "/proxy?url="
+                        )
+                    ) {
 
-                    const encoded =
-                    Buffer.from(
-                        absolute
-                    )
-                    .toString("base64")
-                    .replace(/\+/g,"-")
-                    .replace(/\//g,"_")
-                    .replace(/=/g,"");
+                        return match;
+
+                    }
 
 
+                    try {
 
-                    return `url("/proxy?url=${encoded}")`;
+                        const absolute =
+                            new URL(
+                                trimmed,
+                                url
+                            ).href;
 
 
-                }
-                catch(e){
+                        if (
+                            absolute.startsWith(
+                                "http://"
+                            ) ||
+                            absolute.startsWith(
+                                "https://"
+                            )
+                        ) {
+
+                            const encoded =
+                                Buffer
+                                    .from(
+                                        absolute
+                                    )
+                                    .toString(
+                                        "base64"
+                                    )
+                                    .replace(
+                                        /\+/g,
+                                        "-"
+                                    )
+                                    .replace(
+                                        /\//g,
+                                        "_"
+                                    )
+                                    .replace(
+                                        /=/g,
+                                        ""
+                                    );
+
+
+                            return (
+                                'url("/proxy?url=' +
+                                encoded +
+                                '")'
+                            );
+
+                        }
+
+                    }
+                    catch (error) {
+
+                        console.log(
+                            "CSS URL ERROR:",
+                            trimmed,
+                            error.message
+                        );
+
+                    }
+
 
                     return match;
 
                 }
-
-            }
-        );
-
+            );
 
 
         console.log(
@@ -173,10 +276,18 @@ export function processResource(
     }
 
 
+    /*
+     * ============================================================
+     * BINARY / OTHER
+     * ============================================================
+     */
 
+    console.log(
+        "RESOURCE PASSED THROUGH:",
+        type,
+        url
+    );
 
-
-    // images/fonts/binary
 
     return body;
 
