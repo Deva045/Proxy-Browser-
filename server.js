@@ -10,6 +10,7 @@ import { createSession } from "./proxy/session.js";
 import { fetchWebsite } from "./proxy/fetcher.js";
 import { decodeURL, encodeURL } from "./proxy/utils.js";
 import { processResource } from "./proxy/resourceHandler.js";
+import { setupWebSocket } from "./proxy/websocket.js";
 
 
 const app = express();
@@ -950,7 +951,13 @@ app.get(
     }
 );
 
+/*
+ * ============================================================
+ * WEBSOCKET PROXY
+ * ============================================================
+ */
 
+setupWebSocket(server);
 /*
  * ============================================================
  * SERVER
